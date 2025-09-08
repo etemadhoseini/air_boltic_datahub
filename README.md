@@ -252,5 +252,5 @@ dbt build --select fct_orders   --vars '{fact_backfill_start: "2025-06-01 00:00:
 
 ---
 
-*Author: Seyed Amir Hosein Etemad Hoseini> – etemadhoseini@gmail.com*  
+*Author: Seyed Amir Hosein Etemad Hoseini – etemadhoseini@gmail.com*  
 *Date: 08.09.2025*
