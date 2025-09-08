@@ -1,0 +1,19 @@
+version: 2
+unit_tests:
+  - name: stg_order_parses_price_and_status
+    model: stg_order
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('operations','order')
+        rows:
+          - {order_id: "1", customer_id: "10", trip_id: "100", status: "booked", price_eur: "12.30", seat_no: "a1"}
+          - {order_id: "2", customer_id: "11", trip_id: "101", status: "CANCELLED", price_eur: "", seat_no: "b2"}
+      - input: ref('stg_trip')
+        rows: [{trip_id: "100", trip_start_ts: "2025-08-01 10:00:00"},
+               {trip_id: "101", trip_start_ts: "2025-08-02 10:00:00"}]
+    expect:
+      rows:
+        - {order_id: 1, order_status: "Booked", price_eur: 12.30}
+        - {order_id: 2, order_status: "Cancelled", price_eur: null}

@@ -1,0 +1,50 @@
+name: 'air_boltic_analytics'
+version: '1.0.0'
+
+profile: 'air_boltic_analytics'
+
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+flags:
+  use_materialization_v2: true
+
+models:
+  +persist_docs:
+      relation: true
+      columns: true
+  air_boltic_analytics:
+    +materialized: view
+    +file_format: delta
+    +store_failures: true
+    staging:
+      +materialized: table
+      +schema: staging
+      +on_schema_change: fail
+      +tags: [staging]
+    curated:
+      +materialized: table
+      +schema: curated
+      +on_schema_change: fail
+      +tags: [curated]
+      +contract:
+          enforced: false
+    marts:
+      +materialized: table
+      +schema: marts
+      +on_schema_change: fail
+      +tags: [marts]
+      +contract:
+          enforced: false
+
+seeds:
+  +schema: seed_data

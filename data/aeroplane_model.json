@@ -1,0 +1,134 @@
+{
+  "Boeing": {
+    "737-800": {
+      "max_seats": 189,
+      "max_weight": 79015,
+      "max_distance": 2935,
+      "engine_type": "CFM56-7B"
+    },
+    "777-300ER": {
+      "max_seats": 396,
+      "max_weight": 351535,
+      "max_distance": 7930,
+      "engine_type": "GE90-115B"
+    },
+    "787-9": {
+      "max_seats": 296,
+      "max_weight": 254000,
+      "max_distance": 7635,
+      "engine_type": "GEnx-1B"
+    }
+  },
+  "Airbus": {
+    "A320neo": {
+      "max_seats": 194,
+      "max_weight": 79000,
+      "max_distance": 3700,
+      "engine_type": "CFM LEAP-1A"
+    },
+    "A350-900": {
+      "max_seats": 440,
+      "max_weight": 280000,
+      "max_distance": 8100,
+      "engine_type": "Rolls-Royce Trent XWB"
+    },
+    "A380-800": {
+      "max_seats": 853,
+      "max_weight": 560000,
+      "max_distance": 8000,
+      "engine_type": "Rolls-Royce Trent 900"
+    }
+  },
+  "Embraer": {
+    "E190-E2": {
+      "max_seats": 114,
+      "max_weight": 56600,
+      "max_distance": 3250,
+      "engine_type": "PW1900G"
+    },
+    "E175": {
+      "max_seats": 88,
+      "max_weight": 37500,
+      "max_distance": 2200,
+      "engine_type": "CF34-8E"
+    },
+    "E195-E2": {
+      "max_seats": 146,
+      "max_weight": 61700,
+      "max_distance": 2600,
+      "engine_type": "PW1900G"
+    }
+  },
+  "Bombardier": {
+    "CRJ900": {
+      "max_seats": 90,
+      "max_weight": 38530,
+      "max_distance": 1554,
+      "engine_type": "CF34-8C5"
+    },
+    "Q400": {
+      "max_seats": 90,
+      "max_weight": 29257,
+      "max_distance": 1567,
+      "engine_type": "PW150A"
+    }
+  },
+  "Cessna": {
+    "Citation X+": {
+      "max_seats": 12,
+      "max_weight": 16555,
+      "max_distance": 3516,
+      "engine_type": "AE3007C2"
+    },
+    "Citation Latitude": {
+      "max_seats": 9,
+      "max_weight": 13605,
+      "max_distance": 2700,
+      "engine_type": "PW306D1"
+    }
+  },
+  "Gulfstream": {
+    "G650": {
+      "max_seats": 19,
+      "max_weight": 45360,
+      "max_distance": 7500,
+      "engine_type": "BR725"
+    },
+    "G550": {
+      "max_seats": 19,
+      "max_weight": 41300,
+      "max_distance": 6750,
+      "engine_type": "BR710"
+    }
+  },
+  "Dassault": {
+    "Falcon 7X": {
+      "max_seats": 19,
+      "max_weight": 31750,
+      "max_distance": 5950,
+      "engine_type": "PW307A"
+    },
+    "Falcon 2000LXS": {
+      "max_seats": 10,
+      "max_weight": 19105,
+      "max_distance": 4000,
+      "engine_type": "PW308C"
+    }
+  },
+  "Mitsubishi": {
+    "SpaceJet M90": {
+      "max_seats": 92,
+      "max_weight": 39000,
+      "max_distance": 2030,
+      "engine_type": "PW1200G"
+    }
+  },
+  "COMAC": {
+    "C919": {
+      "max_seats": 174,
+      "max_weight": 72500,
+      "max_distance": 2555,
+      "engine_type": "CFM LEAP-1C"
+    }
+  }
+}

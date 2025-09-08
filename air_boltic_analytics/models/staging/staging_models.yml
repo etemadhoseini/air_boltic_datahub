@@ -1,0 +1,237 @@
+version: 2
+
+models:
+  - name: stg_customer
+    description: Cleaned, typed customer records.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: customer_id
+        description: Business key for the customer
+        data_type: integer
+        tests: [not_null, unique]
+      - name: customer_group_id
+        description: Identifier for the group the customer belongs to
+        data_type: integer
+      - name: customer_name
+        description: Customer full name
+        data_type: string
+        tests: [not_null]
+      - name: email
+        description: Lowercased email address (PII)
+        data_type: string
+        tags: [pii]
+      - name: phone_number
+        description: Digits-only phone (PII)
+        data_type: string
+        tags: [pii]
+
+  - name: stg_customer_group
+    description: Cleaned, typed customer group records.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: customer_group_id
+        description: Unique identifier for the customer group
+        data_type: integer
+        tests: [not_null, unique]
+      - name: customer_group_name
+        description: Name of the customer group
+        data_type: string
+        tests: [not_null]
+      - name: customer_group_type
+        description: Type of the customer group (e.g., private, company, organization)
+        data_type: string
+      - name: registry_number
+        description: Official registry number for the customer group (if applicable)
+        data_type: string
+
+  - name: stg_airplane
+    description: >
+        Cleaned airplane rows with normalized manufacturer/model 
+        and a deterministic model_key for dimensions.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: airplane_id
+        description: Business key for the airplane
+        data_type: integer
+        tests: [not_null, unique]
+      - name: manufacturer
+        description: Uppercased, trimmed manufacturer name
+        data_type: string
+        tests: [not_null]
+      - name: model
+        description: Uppercased, trimmed airplane model name
+        data_type: string
+        tests: [not_null]
+      - name: model_key
+        description: MD5 of manufacturer||model (normalized); used to relate to airplane_model
+        data_type: string
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_airplane_model')
+                field: model_key
+
+  - name: stg_airplane_model
+    description: >
+        Canonical airplane model reference with types and normalization;
+        one row per manufacturer+model.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: manufacturer
+        description: Uppercased, trimmed manufacturer name
+        data_type: string
+        tests: 
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["AIRBUS","MITSUBISHI","CESSNA","EMBRAER","BOEING","DASSAULT","BOMBARDIER","GULFSTREAM","COMAC"]
+                quote: true
+                config:
+                  severity: warn
+      - name: model
+        description: Uppercased, trimmed airplane model name
+        data_type: string
+        tests: [not_null]
+      - name: model_key
+        description: MD5 of manufacturer||model (normalized); unique key for the dimension
+        data_type: string
+        tests: [not_null, unique]
+      - name: max_seats
+        description: Seating capacity (int); blank -> null
+        data_type: int
+      - name: engine_type
+        description: Normalized engine type (uppercased)
+        data_type: string
+      - name: max_distance
+        description: Maximum range in kilometers (int); blank -> null
+        data_type: int
+      - name: max_weight
+        description: Maximum takeoff weight in kilograms (int); blank -> null
+        data_type: int
+
+  - name: stg_trip
+    description: >
+      Cleaned trips with typed timestamps (from epoch millis) and normalized city names; 
+      incremental MERGE with rolling lookback/backfill.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: trip_id
+        description: Business key for the trip
+        data_type: integer
+        tests: [not_null, unique]
+      - name: origin_city
+        description: Origin city (Initcap)
+        data_type: string
+        tests: [not_null]
+      - name: destination_city
+        description: Destination city (Initcap)
+        data_type: string
+        tests: [not_null]
+      - name: airplane_id
+        description: Airplane identifier assigned to the trip
+        data_type: integer
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_airplane')
+                field: airplane_id
+      - name: trip_start_ts
+        description: Trip start timestamp derived from epoch milliseconds
+        data_type: timestamp
+        tests: 
+          - not_null
+      - name: trip_end_ts
+        description: Trip end timestamp derived from epoch milliseconds
+        data_type: timestamp
+        tests: [not_null]
+      - name: trip_start_date
+        description: Partitioning key for clustering and windowing
+        data_type: date
+      - name: updated_at
+        description: Timestamp when this row was last written in staging
+        data_type: timestamp
+        tests: [not_null]
+    tests:
+      - dbt_expectations.expect_column_pair_values_A_to_be_greater_than_B:
+          arguments:
+            column_A: trip_end_ts
+            column_B: trip_start_ts
+            or_equal: false
+            config:
+              severity: warn
+
+  - name: stg_order
+    description: >
+      Cleaned orders, typed numerics, joined to trip start time for incremental windowing;
+      incremental MERGE with rolling lookback/backfill.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        description: Business key for the order
+        data_type: integer
+        tests: [not_null, unique]
+      - name: customer_id
+        description: Customer identifier
+        data_type: integer
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customer')
+                field: customer_id
+      - name: trip_id
+        description: Trip identifier
+        data_type: integer
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_trip')
+                field: trip_id
+      - name: order_status
+        description: Uppercased order status
+        data_type: string
+        tests:
+          - relationships:
+              arguments:
+                to: ref('reference__order_status')
+                field: status
+                config:
+                  severity: warn
+      - name: price_eur
+        description: Order price in EUR (decimal)
+        data_type: decimal(18,2)
+        tests: 
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+      - name: seat_no
+        description: Seat number (uppercased, if present)
+        data_type: string
+      - name: order_trip_start_ts
+        description: Trip start timestamp of the associated trip (used for incremental windowing)
+        data_type: timestamp
+      - name: order_trip_start_date
+        description: Date of the associated trip start (used for clustering)
+        data_type: date
+      - name: updated_at
+        description: Timestamp when this row was last written in staging
+        data_type: timestamp
+        tests: [not_null]
+

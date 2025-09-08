@@ -1,0 +1,81 @@
+version: 2
+
+sources:
+  - name: operations
+    database: "{{ env_var('RAW_CATALOG', 'raw') }}"
+    schema: operations
+    loader: s3 (databricks connector)
+    description: >
+      Operational entities for Air Boltic (trips and orders/bookings).
+      These are raw, string-typed sources; downstream models enforce business rules.
+    
+    quoting:
+      database: false
+      schema: false
+      identifier: false
+
+    tags: ["raw", "operations", "air-boltic"] 
+
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+    
+    tables:
+      - name: trip
+        description: >
+          Planned or completed trips (origin–destination legs, times, aircraft assignment).
+        freshness: null
+        columns:
+          - name: trip_id
+            description: Unique identifier for the trip
+            tests:
+              - not_null
+              - unique
+          - name: origin_city
+            description: Origin city of the trip
+            tests:
+              - not_null
+          - name: destination_city
+            description: Destination city of the trip
+            tests:
+              - not_null
+          - name: airplane_id
+            description: Identifier for the airplane assigned to the trip
+            tests:
+              - not_null
+          - name: start_timestamp
+            description: Scheduled start time of the trip (epoch milliseconds)
+            tests:
+              - not_null
+          - name: end_timestamp
+            description: Scheduled end time of the trip (epoch milliseconds)
+            tests:
+              - not_null
+
+      - name: order
+        description: Table containing order data
+        freshness: null
+        columns:
+          - name: order_id
+            description: Unique identifier for the order
+            tests:
+              - not_null
+              - unique
+          - name: customer_id
+            description: Identifier for the customer who placed the order
+            tests:
+              - not_null
+          - name: trip_id
+            description: Identifier for the trip associated with the order
+            tests:
+              - not_null
+          - name: status
+            description: Status of the order (e.g., booked, cancelled)
+            tests:
+              - not_null
+          - name: price_eur
+            description: Price of the order in euros
+            tests:
+              - not_null
+          - name: seat_no
+            description: Seat number assigned to the order

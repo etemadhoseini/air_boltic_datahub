@@ -1,0 +1,210 @@
+name: Databricks CI Schema Janitor
+
+on:
+  schedule:
+    - cron: "15 2 * * *"   # daily 02:15 UTC
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+# Allow the workflow's GITHUB_TOKEN to read PRs (needed to know which PRs are open)
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  janitor:
+    runs-on: ubuntu-latest
+    env:
+      # --- Databricks connection (set these in repo/org Secrets) ---
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      # --- What to clean ---
+      # Comma-separated list like "dev,stg,qa"  OR  "ALL" to scan every catalog except system ones
+      TARGET_CATALOGS: dev
+
+      # --- Behavior knobs ---
+      DROP_CI_ALWAYS: "true"    # drop ALL ci_* regardless of age
+      DROP_PR_ALWAYS: "false"   # if "true", drop ALL pr_* regardless of PR status
+      TTL_DAYS: "0"             # 0 disables TTL; >0 drops items older than N days
+      DRY_RUN: "false"          # "true" = show planned drops only
+
+    steps:
+      - name: Normalize DATABRICKS_HTTP_PATH (strip "SQL:")
+        env:
+          RAW_HTTP_PATH: ${{ env.DATABRICKS_HTTP_PATH }}
+        run: |
+          CLEANED="${RAW_HTTP_PATH//SQL:/}"; CLEANED="${CLEANED//sql:/}"
+          echo "DATABRICKS_HTTP_PATH=$CLEANED" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install databricks-sql-connector requests
+
+      - name: Run janitor
+        env:
+          # GitHub provides these automatically
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - << 'PY'
+          import os, re, sys, requests, datetime
+          from databricks import sql as dbsql
+
+          # -------------------------
+          # Config / env
+          # -------------------------
+          host = os.environ["DATABRICKS_HOST"].replace("https://","")
+          http_path = os.environ["DATABRICKS_HTTP_PATH"]
+          token = os.environ["DATABRICKS_TOKEN"]
+
+          target_catalogs = os.environ.get("TARGET_CATALOGS","dev").strip()
+          drop_ci_always = os.environ.get("DROP_CI_ALWAYS","true").lower() == "true"
+          drop_pr_always = os.environ.get("DROP_PR_ALWAYS","false").lower() == "true"
+          ttl_days = int(os.environ.get("TTL_DAYS","0") or "0")   # 0 = disable TTL
+          dry_run = os.environ.get("DRY_RUN","false").lower() == "true"
+
+          now = datetime.datetime.utcnow()
+
+          # name patterns
+          re_pr = re.compile(r"^pr_(\d+)(?:_.+)?$", re.I)
+          re_ci = re.compile(r"^ci_(?:.*)?$", re.I)
+
+          # -------------------------
+          # Gather open PRs (only needed if not drop_pr_always)
+          # -------------------------
+          open_prs = set()
+          repo = os.environ.get("GITHUB_REPOSITORY")
+          if not repo or "/" not in repo:
+              print("ERROR: GITHUB_REPOSITORY not available."); sys.exit(1)
+
+          if not drop_pr_always:
+              gh_token = os.environ.get("GITHUB_TOKEN")
+              headers = {"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+              if gh_token: headers["Authorization"] = f"Bearer {gh_token}"
+              page = 1
+              while True:
+                  r = requests.get(f"https://api.github.com/repos/{repo}/pulls",
+                                   params={"state":"open","per_page":100,"page":page},
+                                   headers=headers, timeout=30)
+                  if r.status_code != 200:
+                      print("GitHub API error:", r.status_code, r.text); sys.exit(1)
+                  batch = r.json()
+                  if not isinstance(batch, list) or not batch: break
+                  for pr in batch:
+                      n = pr.get("number")
+                      if n is not None: open_prs.add(str(n))
+                  page += 1
+
+          print("Open PRs (ignored if DROP_PR_ALWAYS=true):", sorted(open_prs))
+
+          def age_days(created):
+              try:
+                  if hasattr(created, "tzinfo") and created.tzinfo is not None:
+                      return (now - created.replace(tzinfo=None)).days
+                  return (now - created).days
+              except Exception:
+                  return 0
+
+          def run_query(cur, sql):
+              cur.execute(sql)
+              return cur.fetchall()
+
+          with dbsql.connect(server_hostname=host, http_path=http_path, access_token=token) as conn:
+              cur = conn.cursor()
+
+              # Determine catalogs to scan
+              if target_catalogs.upper() == "ALL":
+                  rows = run_query(cur, "SHOW CATALOGS")
+                  all_cats = [r[0] for r in rows]
+                  exclude = {"system", "samples", "unity", "hive_metastore"}
+                  catalogs = [c for c in all_cats if c not in exclude]
+              else:
+                  catalogs = [c.strip() for c in target_catalogs.split(",") if c.strip()]
+
+              print("Scanning catalogs:", catalogs)
+
+              # Try to get created timestamps; fallback to SHOW SCHEMAS if not permitted
+              have_info_schema = True
+              try:
+                  run_query(cur, "SELECT 1 FROM system.information_schema.schemata LIMIT 1")
+              except Exception as e:
+                  print("No access to system.information_schema; fallback to SHOW SCHEMAS. Reason:", e)
+                  have_info_schema = False
+
+              total_ci = total_pr = 0
+              candidates = []  # list of (catalog, schema_name) to drop
+
+              for cat in catalogs:
+                  created_map = {}
+                  if have_info_schema:
+                      rows = run_query(cur, f"""
+                          SELECT schema_name, created
+                          FROM system.information_schema.schemata
+                          WHERE catalog_name = '{cat}'
+                      """)
+                      schema_names = [r[0] for r in rows]
+                      for name, created in rows:
+                          created_map[name] = created
+                  else:
+                      rows = run_query(cur, f"SHOW SCHEMAS IN {cat}")
+                      schema_names = [r[0] for r in rows]
+
+                  # Count matches
+                  ci_match = [n for n in schema_names if re_ci.match(n)]
+                  pr_match = [n for n in schema_names if re_pr.match(n)]
+                  total_ci += len(ci_match)
+                  total_pr += len(pr_match)
+                  print(f"[{cat}] matched ci_*: {ci_match}")
+                  print(f"[{cat}] matched pr_*: {pr_match}")
+
+                  # Decide drops
+                  for name in schema_names:
+                      created = created_map.get(name)
+                      old_enough = True
+                      if ttl_days > 0 and created is not None:
+                          old_enough = age_days(created) >= ttl_days
+
+                      if re_ci.match(name):
+                          # Drop all ci_* if configured; ignore TTL when DROP_CI_ALWAYS=true
+                          if drop_ci_always or (ttl_days > 0 and old_enough):
+                              candidates.append((cat, name))
+                          continue
+
+                      mpr = re_pr.match(name)
+                      if mpr:
+                          pr_num = mpr.group(1)
+                          if drop_pr_always:
+                              candidates.append((cat, name))
+                          else:
+                              if (pr_num not in open_prs) or (ttl_days > 0 and old_enough):
+                                  candidates.append((cat, name))
+                          continue
+
+              print(f"Matched totals -> ci_*: {total_ci}, pr_*: {total_pr}")
+              if not candidates:
+                  print("Nothing to drop. Done."); sys.exit(0)
+
+              # De-dup (catalog,schema) and drop
+              seen = set()
+              to_drop = [(c,s) for (c,s) in candidates if not ((c,s) in seen or seen.add((c,s)))]
+              print("Planned drops:", to_drop)
+
+              for cat, name in to_drop:
+                  stmt = f"DROP SCHEMA IF EXISTS {cat}.{name} CASCADE"
+                  if dry_run:
+                      print("[DRY RUN]", stmt)
+                  else:
+                      print("Dropping:", stmt)
+                      cur.execute(stmt)
+
+          print("Janitor completed.")
+          PY

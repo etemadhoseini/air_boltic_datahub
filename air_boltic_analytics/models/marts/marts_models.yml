@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: mart_orders
+    description: >
+      One Big Table mart joining orders (fact) with customer and airplane dimensions.
+      Grain: 1 row per order_id.
+    columns:
+      - name: order_id
+        data_type: integer
+        tests: [not_null, unique]
+      - name: customer_id
+        data_type: integer
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: trip_id
+        data_type: integer
+      - name: airplane_id
+        data_type: integer
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_airplane')
+                field: airplane_id
+      - name: customer_name
+        data_type: string
+      - name: customer_group_id
+        data_type: integer
+      - name: customer_group_name
+        data_type: string
+      - name: customer_group_type
+        data_type: string
+      - name: customer_group_registry_number
+        data_type: string
+      - name: manufacturer
+        data_type: string
+      - name: model
+        data_type: string
+      - name: max_seats
+        data_type: int
+      - name: engine_type
+        data_type: string
+      - name: max_distance
+        data_type: int
+      - name: max_weight
+        data_type: int
+      - name: model_key
+        data_type: string
+      - name: order_status
+        data_type: string
+      - name: price_eur
+        data_type: decimal(18,2)
+      - name: seat_no
+        data_type: string
+      - name: origin_city
+        data_type: string
+      - name: destination_city
+        data_type: string
+      - name: trip_start_ts
+        data_type: timestamp
+      - name: trip_end_ts
+        data_type: timestamp
+      - name: order_trip_start_ts
+        data_type: timestamp
+      - name: order_trip_start_date
+        data_type: date
+      - name: trip_duration_minutes
+        data_type: double
+      - name: updated_at
+        description: Latest change timestamp from the underlying fact used to drive incremental loads
+        data_type: timestamp
+        tests: [not_null]

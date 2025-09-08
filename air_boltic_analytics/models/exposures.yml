@@ -1,0 +1,12 @@
+version: 2
+
+exposures:
+  - name: orders_dashboard
+    type: dashboard
+    maturity: medium
+    url: https://bi.example.com/dashboards/orders
+    depends_on:
+      - ref('mart_orders')
+    owner:
+      name: Analytics Team
+      email: analytics@air-boltic.example

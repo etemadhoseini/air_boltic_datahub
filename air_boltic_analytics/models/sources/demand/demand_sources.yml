@@ -1,0 +1,69 @@
+version: 2
+
+sources:
+  - name: demand
+    database: "{{ env_var('RAW_CATALOG', 'raw') }}"
+    schema: demand
+    loader: s3 (databricks connector)
+    description: >
+      Demand-side entities for Air Boltic (the marketplace side with travelers and groups).
+      These tables are raw landing data; transformations should live in staging models.
+
+    quoting:
+      database: false
+      schema: false
+      identifier: false
+
+    tags: ["raw", "demand", "air-boltic"]
+
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+
+    tables:
+      - name: customer
+        description: >
+          Individual travelers using Air Boltic to book or join aeroplane rides.
+          Raw, as-landed; expect string-typed columns pending typing in staging.
+        freshness: null
+        columns:
+          - name: customer_id
+            description: Unique identifier for the customer
+            tests:
+              - not_null
+              - unique
+          - name: name
+            description: Name of the customer
+            tests:
+              - not_null
+          - name: email
+            description: "Customer email (PII)"
+            tags: ["pii"]
+            meta:
+              pii: true
+              pii_type: "email"
+          - name: phone
+            description: "Customer phone (PII)"
+            tags: ["pii"]
+            meta:
+              pii: true
+              pii_type: "phone"
+      - name: customer_group
+        description: >
+          Groups of customers who travel together or share a booking intent.
+          Raw, string-typed; downstream models will enforce semantics.
+        freshness: null
+        columns:
+          - name: id
+            description: Unique identifier for the customer group
+            tests:
+              - not_null
+              - unique
+          - name: name
+            description: Name of the customer group
+            tests:
+              - not_null
+          - name: type
+            description: Type of customer group (e.g., private group, company, organization)
+            tests:
+              - not_null

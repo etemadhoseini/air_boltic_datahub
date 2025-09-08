@@ -1,0 +1,66 @@
+version: 2
+
+sources:
+  - name: supply
+    database: "{{ env_var('RAW_CATALOG', 'raw') }}"
+    schema: supply
+    loader: s3 (databricks connector)
+    description: >
+      Supply-side entities for Air Boltic (airplane operators and fleet).
+      These tables land as raw strings and are typed in staging.
+
+    quoting:
+      database: false
+      schema: false
+      identifier: false
+
+    tags: ["raw", "supply", "air-boltic"]
+
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+
+    tables:
+      - name: airplane
+        description: >
+          Airplanes made available by operators for marketplace flights.
+        freshness: null
+        columns:
+          - name: airplane_id
+            description: Unique identifier for the airplane
+            tests:
+              - not_null
+              - unique
+          - name: manufacturer
+            description: Manufacturer of the airplane (e.g., Boeing, Airbus)
+            tests:
+              - not_null
+          - name: airplane_model
+            description: Model of the airplane (e.g., 737, A320)
+            tests:
+              - not_null
+
+      - name: airplane_model
+        description: >
+          Canonical airplane model reference extracted from JSON uploads
+          (manufacturer, model, and related attributes).
+        freshness: null
+        columns:
+          - name: manufacturer
+            description: Manufacturer of the airplane model (e.g., Boeing, Airbus)
+            tests:
+              - not_null
+          - name: model
+            description: Model of the airplane (e.g., 737, A320)
+            tests:
+              - not_null
+          - name: max_seats
+            description: Seating capacity of the airplane model
+            tests:
+              - not_null
+          - name: engine_type
+            description: Type of engine used in the airplane model.
+          - name: max_distance
+            description: Maximum range of the airplane model in kilometers
+          - name: max_weight
+            description: Maximum takeoff weight of the airplane model in kilograms

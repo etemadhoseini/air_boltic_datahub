@@ -1,0 +1,137 @@
+# .github/workflows/dbt-ci.yml
+name: dbt CI (PR)
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Which environment?
+        type: choice
+        options: [dev, staging, prod, ci]
+        default: dev
+
+defaults:
+  run:
+    working-directory: ./air_boltic_analytics
+
+jobs:
+  dbt-ci:
+    runs-on: ubuntu-latest
+    env:
+      # Databricks connection (GitHub Secrets)
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      # dbt env
+      DBT_ENV_SECRET_DATABRICKS_CATALOG: dev
+      DBT_THREADS: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Optional: strip a leading 'SQL:' prefix from the http_path secret
+      - name: Normalize DATABRICKS_HTTP_PATH (strip "SQL:")
+        env:
+          RAW_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+        run: |
+          CLEANED="${RAW_HTTP_PATH//SQL:/}"
+          CLEANED="${CLEANED//sql:/}"
+          echo "DATABRICKS_HTTP_PATH=$CLEANED" >> "$GITHUB_ENV"
+
+      - name: Sanity check files
+        run: |
+          test -f requirements.ci.txt || (echo "Missing air_boltic_analytics/requirements.ci.txt"; exit 1)
+          ls -la
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CI dependencies
+        run: |
+          python -m pip install -U pip wheel setuptools
+          pip install -r requirements.ci.txt
+
+          
+      # Restore last run's manifest.json into ./air_boltic_analytics/state/
+      - name: Restore dbt state cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: air_boltic_analytics/state
+          key: dbt-state-${{ github.base_ref || 'main' }}-${{ github.run_id }}
+          restore-keys: |
+            dbt-state-${{ github.base_ref || 'main' }}-
+            dbt-state-main-
+
+      - name: Compute CI schema name (PR or fallback)
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          if [ -n "$PR" ]; then
+            echo "DBT_ENV_SECRET_CI_SCHEMA=pr_${PR}" >> $GITHUB_ENV
+          else
+            echo "DBT_ENV_SECRET_CI_SCHEMA=ci_${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          fi
+          echo "Using CI schema: ${DBT_ENV_SECRET_CI_SCHEMA:-<not set>}"
+
+      - name: dbt deps & parse
+        run: |
+          dbt deps
+          dbt parse --profiles-dir . --project-dir .
+
+      # Optional: explicit schema create; dbt can auto-create if privileges allow
+      - name: Create ephemeral schema in dev
+        run: |
+          python - << 'PY'
+          import os
+          from databricks import sql as dbsql
+          host = os.environ["DATABRICKS_HOST"].replace("https://","")
+          with dbsql.connect(server_hostname=host,
+                             http_path=os.environ["DATABRICKS_HTTP_PATH"],
+                             access_token=os.environ["DATABRICKS_TOKEN"]) as c:
+              s = os.environ["DBT_ENV_SECRET_CI_SCHEMA"]
+              c.cursor().execute(f"CREATE SCHEMA IF NOT EXISTS dev.{s}")
+          PY
+
+      # Decide whether to use state selection (only if manifest exists)
+      - name: Decide build strategy
+        id: plan
+        run: |
+          if [ -f air_boltic_analytics/state/manifest.json ]; then
+           echo "flags=--select +state:modified+ --defer --state air_boltic_analytics/state" >> $GITHUB_OUTPUT
+           echo "Using previous state at state/manifest.json"
+          else
+            echo "flags=" >> $GITHUB_OUTPUT
+            echo "No previous manifest found; running full build."
+          fi
+          echo "Planned flags: '${{ steps.plan.outputs.flags }}'"
+
+      - name: dbt build (CI)
+        run: |
+          dbt build \
+            --target ci \
+            ${{ steps.plan.outputs.flags }} \
+            --profiles-dir . --project-dir .
+
+      # Save NEW manifest for future runs:
+      # 1) copy ./target -> ./state so our cache path stays consistent
+      - name: Copy target to state
+        if: always()
+        run: |
+          rm -rf air_boltic_analytics/state
+          mkdir -p air_boltic_analytics/state
+          cp -r air_boltic_analytics/target/* air_boltic_analytics/state/ || true
+          ls -la air_boltic_analytics/state || true
+
+      # 2) save the state folder in the cache with a unique key for this run
+      - name: Save dbt state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: air_boltic_analytics/state
+          key: dbt-state-${{ github.base_ref || 'main' }}-${{ github.run_id }}
