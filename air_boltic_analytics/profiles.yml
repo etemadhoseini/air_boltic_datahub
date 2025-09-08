@@ -9,7 +9,7 @@ air_boltic_analytics:
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: dev
       schema: "{{ env_var('USER','developer') }}"
-      threads: "{{ env_var('DBT_THREADS', 8) }}"
+      threads: "{{ env_var('DBT_THREADS', 8) | int }}"
     ci:
       type: databricks
       method: http
@@ -18,7 +18,7 @@ air_boltic_analytics:
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: "{{ env_var('DBT_ENV_SECRET_DATABRICKS_CATALOG','dev') }}"
       schema: "{{ env_var('DBT_ENV_SECRET_CI_SCHEMA') }}"
-      threads: "{{ env_var('DBT_THREADS', 8) }}"
+      threads: "{{ env_var('DBT_THREADS', 8) | int }}"
     stg:
       type: databricks
       method: http
@@ -27,7 +27,7 @@ air_boltic_analytics:
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: stg
       schema: analytics
-      threads: "{{ env_var('DBT_THREADS', 8) }}"
+      threads: "{{ env_var('DBT_THREADS', 8) | int }}"
     prod:
       type: databricks
       method: http
@@ -36,4 +36,4 @@ air_boltic_analytics:
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       catalog: air_boltic
       schema: analytics
-      threads: "{{ env_var('DBT_THREADS', 8) }}"
+      threads: "{{ env_var('DBT_THREADS', 8) | int }}"
